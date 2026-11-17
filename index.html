@@ -2133,6 +2133,13 @@ function buildLetter(animate){
   $('#answered').classList.remove('in');
   $('#skipHint').style.opacity = animate ? 1 : 0;
 
+  // shown straight away (e.g. a return visit): let the browser lay the lines out itself
+  if(!animate){
+    letter.classList.remove('writing');
+    if(!progress.answered) revealAsk();
+    return;
+  }
+
   // group words into the lines the browser drew, so each line can be written in turn
   const lines = [];
   const salute = $('#lastTo');
@@ -2150,11 +2157,6 @@ function buildLetter(animate){
   });
   from.querySelectorAll('.ln').forEach(l => lines.push(l));
 
-  if(!animate){
-    letter.classList.remove('writing');
-    if(!progress.answered) revealAsk();
-    return;
-  }
   letter.classList.add('writing');
   let t = 500;
   const marks = [];
