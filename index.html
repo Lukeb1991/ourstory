@@ -1098,7 +1098,9 @@ let progress = loadProgress();
 const isUnlocked = i => progress.done.slice(0, i).every(Boolean);
 const allDone = () => progress.done.length > 0 && progress.done.every(Boolean);
 
-/* ---------------- backing track ---------------- */
+/* ---------------- backing track ----------------
+   Phones won't load or play audio until someone taps, so the first tap
+   (the envelope, or anywhere) starts the track directly. */
 const music = (function(){
   const btn = $('#musicBtn');
   if(!STORY.music){ return { start(){} }; }
@@ -1106,10 +1108,11 @@ const music = (function(){
   track.src = STORY.music;
   track.loop = true;
   track.preload = 'auto';
-  let available = false, playing = false, fadeTimer = null, wasPlaying = false;
+  track.setAttribute('playsinline', '');
+  let ready = false, broken = false, playing = false, starting = false, fadeTimer = null, wasPlaying = false;
 
   function paint(){
-    if(!available){ btn.hidden = true; return; }
+    if(broken || !ready){ btn.hidden = true; return; }
     btn.hidden = false;
     const off = !!progress.musicOff;
     btn.setAttribute('aria-pressed', off ? 'false' : 'true');
@@ -1117,6 +1120,9 @@ const music = (function(){
     btn.innerHTML = off ? ICONS.musicOff : '<span class="bars" aria-hidden="true"><i></i><i></i><i></i></span>';
     const bars = btn.querySelector('.bars');
     if(bars) bars.style.opacity = playing ? 1 : .6;
+  }
+  function warn(){
+    if(window.console) console.warn('Our Story: couldn’t load the music file "' + STORY.music + '". Check it sits next to index.html with exactly that name (capitals count).');
   }
   function fade(to, ms, done){
     clearInterval(fadeTimer);
@@ -1129,16 +1135,28 @@ const music = (function(){
     }, 50);
   }
   function start(){
-    if(!available || progress.musicOff || playing) return;
+    if(broken || progress.musicOff || playing || starting) return;
+    starting = true;
     try{ track.volume = 0; }catch(e){}
-    const p = track.play();
-    const ok = () => { playing = true; fade(.5, 2200); paint(); };
-    if(p && p.then) p.then(ok).catch(() => {}); else ok();
+    let p;
+    try{ p = track.play(); }catch(e){ starting = false; return; }
+    const ok = () => { starting = false; playing = true; ready = true; fade(.5, 2200); paint(); };
+    const fail = err => {
+      starting = false;
+      // NotAllowedError just means "wait for a tap"; anything else means the file can't play
+      if(err && err.name !== 'NotAllowedError' && err.name !== 'AbortError'){ broken = true; paint(); warn(); }
+    };
+    if(p && p.then) p.then(ok, fail); else ok();
   }
-  function stop(){ fade(0, 400, () => { track.pause(); playing = false; paint(); }); }
+  function stop(){
+    fade(0, 400, () => {
+      if(progress.musicOff){ track.pause(); playing = false; }
+      paint();
+    });
+  }
 
-  track.addEventListener('canplay', () => { if(!available){ available = true; paint(); } });
-  track.addEventListener('error', () => { available = false; paint(); });
+  track.addEventListener('loadedmetadata', () => { ready = true; paint(); });
+  track.addEventListener('error', () => { broken = true; paint(); warn(); });
   btn.addEventListener('click', () => {
     progress.musicOff = !progress.musicOff;
     saveProgress();
@@ -1149,9 +1167,8 @@ const music = (function(){
     if(document.hidden){ wasPlaying = playing; if(playing){ track.pause(); playing = false; } }
     else if(wasPlaying && !progress.musicOff){ start(); }
   });
-  // browsers only allow sound after a tap, so start on the first one
-  document.addEventListener('pointerdown', start, { passive:true });
-  document.addEventListener('keydown', start);
+  // these are the events phones count as a real tap for sound
+  ['click', 'touchend', 'keydown'].forEach(ev => document.addEventListener(ev, start, { passive:true }));
   return { start };
 })();
 
